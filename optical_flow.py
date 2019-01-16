@@ -4,9 +4,6 @@ from scipy import signal
 import matplotlib.pyplot as plt
 
 
-# from repetition import wavelet_transform
-
-
 def open_video(file):
     cap = cv2.VideoCapture(file)
     frameCount = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -69,12 +66,6 @@ def fourier(video, i, j):
     hsv = np.zeros_like(video[0])
     hsv[..., 1] = 255
     mag, ang = cv2.cartToPolar(dft_shift[..., 0], dft_shift[..., 1])
-
-
-    # print('Fourier shape', dft_shift.shape)
-
-    #magnitude_spectrum = 255 * np.log(cv2.magnitude(dft_shift[:, :, 0], dft_shift[:, :, 1]))
-
     '''
     plt.subplot(121), plt.imshow(mag, cmap='plasma')
     plt.title('mag'), plt.xticks([]), plt.yticks([])
@@ -83,23 +74,10 @@ def fourier(video, i, j):
     plt.savefig('frames/' + str(i) + '.png')
     plt.clf()
     '''
-
-    lpf_mag, lpf_ang = low_pass_filter(prev, dft_shift, filter=30)
-    hpf_mag, hpf_ang = high_pass_filter(prev, dft_shift, filter=30)
-
-    intensity = np.median(hpf_ang)
-
-    plt.subplot(121), plt.imshow(lpf_ang, cmap='plasma')
-    plt.title('LPF'), plt.xticks([]), plt.yticks([])
-    plt.subplot(122), plt.imshow(hpf_ang, cmap='plasma')
-    plt.title('HPF'), plt.xticks([]), plt.yticks([])
-    plt.savefig('filters/' + str(i) + '.png')
-    plt.clf()
-
-    return intensity
+    return flow
 
 
-video = open_video('noah.mp4')
+video = open_video('test.mp4')
 print(video.shape)
 signal = []
 
@@ -107,5 +85,6 @@ for i in range(0, len(video) - 1):
     intensity = fourier(video, i, i + 1)
     signal.append(intensity)
 
+wavelet_transform(signal)
 plt.plot(signal)
 plt.show()
