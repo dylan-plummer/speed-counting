@@ -16,7 +16,7 @@ batch_size = 1
 num_filters = 64
 kernel_size = 8
 kernel_frames = 32
-frame_size = 64
+frame_size = 32
 window_size = 128
 
 

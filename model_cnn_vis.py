@@ -12,9 +12,9 @@ from keras.utils import np_utils
 
 data_dir = os.getcwd() + '/data/'
 video_dir = 'speed_videos/'
-kernel_size = 16
+kernel_size = 8
 kernel_frames = 32
-frame_size = 64
+frame_size = 32
 window_size = 128
 
 
@@ -125,6 +125,6 @@ def predict_test():
             print(np.sum(pred[0]))
 
 
-predict_test()
+#predict_test()
 plot_conv_layer()
 
