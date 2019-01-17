@@ -3,17 +3,15 @@ from itertools import product
 import math
 import numpy as np
 import cv2
-from Bio import pairwise2
-import pandas as pd
 import os
 
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
-from sklearn.model_selection import train_test_split
 from keras.models import model_from_json, Model
 from keras.utils import np_utils
 
 data_dir = os.getcwd() + '/data/'
+video_dir = 'speed_videos/'
 kernel_size = 16
 kernel_frames = 32
 frame_size = 64
@@ -115,8 +113,8 @@ def predict_test():
         model = model_from_json(f.read())
     # Load weights into the new model
     model.load_weights(dir + 'model_weights.h5')
-    video_path = np.random.choice(os.listdir(data_dir + 'videos'))
-    video = open_video(data_dir + '/videos/' + video_path, window_size=window_size)
+    video_path = np.random.choice(os.listdir(data_dir + video_dir))
+    video = open_video(data_dir + video_dir + video_path, window_size=window_size)
     num_clips = 0
     for start_frame in range(0, len(video), window_size):
         if start_frame + window_size < len(video):
@@ -124,8 +122,9 @@ def predict_test():
             flow_field = video_to_flow_field(clip)
             pred = model.predict(np.array([flow_field]))
             print(pred)
+            print(np.sum(pred[0]))
 
 
 predict_test()
-#plot_conv_layer()
+plot_conv_layer()
 
