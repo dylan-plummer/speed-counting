@@ -13,7 +13,7 @@ from keras.utils import np_utils
 data_dir = os.getcwd() + '/data/'
 video_dir = 'speed_videos/'
 kernel_size = 8
-kernel_frames = 32
+kernel_frames = 16
 frame_size = 32
 window_size = 128
 
@@ -62,14 +62,15 @@ def get_flow_field(video, i, j):
     bgr = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
     return flow
 
+
 def plot_weights(weights):
     print(weights.shape)
     for frame_i in range(kernel_frames):
-        fig, axes = plt.subplots(8, 8)
+        fig, axes = plt.subplots(8, 4)
         print('Saving frame', frame_i)
         for i in range(len(weights)):
-            r = i // 8
-            c = i % 8
+            r = i // 4
+            c = i % 4
             x, y = np.meshgrid(np.arange(kernel_size), np.arange(kernel_size))
             u = weights[i][frame_i][..., 0]
             v = weights[i][frame_i][..., 1]
@@ -90,7 +91,6 @@ def plot_weights(weights):
 
 def plot_conv_layer():
     # load data
-
     dir = 'models/'
     with open(dir + 'model_architecture.json', 'r') as f:
         model = model_from_json(f.read())
@@ -100,9 +100,10 @@ def plot_conv_layer():
     print(layer_outputs)
     for layer in layer_outputs:
         print(layer)
-    conv_embds = np.array(model.layers[1].get_weights())
+    #print(model.layers[1].get_weights())
+    conv_embds = model.layers[1].get_weights()
     print(conv_embds[0].shape)
-    weights = np.reshape(conv_embds[0], (64, kernel_frames, kernel_size, kernel_size, 2))
+    weights = np.reshape(conv_embds[0], (32, kernel_frames, kernel_size, kernel_size, 2))
     print(weights)
     plot_weights(weights)
 
@@ -122,9 +123,11 @@ def predict_test():
             flow_field = video_to_flow_field(clip)
             pred = model.predict(np.array([flow_field]))
             print(pred)
+            plt.plot(pred[0])
+            plt.show()
             print(np.sum(pred[0]))
 
 
-#predict_test()
+predict_test()
 plot_conv_layer()
 

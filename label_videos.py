@@ -13,7 +13,7 @@ def open_video(file, label):
     frame_i = 0
     count = []
 
-    while (cap.isOpened()):
+    while cap.isOpened():
         try:
             ret, frame = cap.read()
 
