@@ -14,8 +14,8 @@ annotation_dir = 'speed_annotations/'
 learning_rate = 0.1
 batch_size = 4
 num_filters = 32
-kernel_size = 16
-kernel_frames = 16
+kernel_size = 8
+kernel_frames = 8
 frame_size = 64
 window_size = 32
 
@@ -101,13 +101,13 @@ def generate_batch(max_frames):
                     y = np.zeros(window_size)
                     for frame in label_clip:
                         y[frame - start_frame] = 1
-                    x_batch = np.append(x_batch, flow_field)
+                    x_batch = np.append(x_batch, clip)
                     y_batch = np.append(y_batch, y)
                     total_batch = np.append(total_batch, np.sum(y))
                     num_clips += 1
                     if num_clips == batch_size:
                         num_clips = 0
-                        x_batch = np.reshape(x_batch, (-1, window_size - 1, frame_size, frame_size, 2))
+                        x_batch = np.reshape(x_batch, (-1, window_size, frame_size, frame_size, 3))
                         y_batch = np.reshape(y_batch, (-1, window_size))
                         yield {'video': x_batch}, {'frames': y_batch}
                         x_batch = np.array([])
@@ -118,15 +118,15 @@ def generate_batch(max_frames):
 max_frames = get_max_length() + 1
 print('Max Frames:', max_frames)
 
-encoder = Input(shape=(window_size - 1, frame_size, frame_size, 2), name='video')
+encoder = Input(shape=(window_size, frame_size, frame_size, 3), name='video')
 output = Conv3D(num_filters, (kernel_frames, kernel_size, kernel_size), activation='relu')(encoder)
 output = MaxPooling3D(pool_size=(5, 2, 2), strides=(5, 2, 2))(output)
 output = Conv3D(64, (3, 3, 3), activation='relu')(output)
 output = MaxPooling3D(pool_size=(1, 2, 2), strides=(5, 2, 2))(output)
 #output = Conv3D(128, (2, 2, 2), activation='relu')(output)
 #output = MaxPooling3D(pool_size=(1, 2, 2), strides=(1, 2, 2))(output)
-output = GlobalMaxPooling3D()(output)
 output = Dense(512, activation='relu')(output)
+output = Flatten()(output)
 repetitions = Dense(1, activation='sigmoid', name='count')(output)
 output = Dense(window_size, activation='sigmoid', name='frames')(output)
 model = Model(inputs=encoder,
@@ -154,7 +154,7 @@ model.compile(loss='binary_crossentropy',
 print(model.summary())
 
 history = model.fit_generator(generate_batch(max_frames),
-                              epochs=100,
+                              epochs=20,
                               steps_per_epoch=4,
                               verbose=1)
 
