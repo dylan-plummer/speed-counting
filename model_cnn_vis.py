@@ -12,10 +12,11 @@ from keras.utils import np_utils
 
 data_dir = os.getcwd() + '/data/'
 video_dir = 'speed_videos/'
+annotation_dir = 'speed_annotations/'
 kernel_size = 8
-kernel_frames = 16
+kernel_frames = 8
 frame_size = 32
-window_size = 128
+window_size = 64
 
 
 def video_to_flow_field(video):
@@ -115,15 +116,24 @@ def predict_test():
     # Load weights into the new model
     model.load_weights(dir + 'model_weights.h5')
     video_path = np.random.choice(os.listdir(data_dir + video_dir))
+    label_path = data_dir + annotation_dir + video_path.replace('.mp4', '.npy')
+    label = np.load(label_path)
     video = open_video(data_dir + video_dir + video_path, window_size=window_size)
     num_clips = 0
     for start_frame in range(0, len(video), window_size):
         if start_frame + window_size < len(video):
             clip = video[start_frame:start_frame + window_size]
             flow_field = video_to_flow_field(clip)
+            label_clip = label[np.where(label < start_frame + window_size)]
+            label_clip = label_clip[np.where(label_clip > start_frame)]
+            y = np.zeros(window_size)
+            for frame in label_clip:
+                y[frame - start_frame] = 1
             pred = model.predict(np.array([flow_field]))
             print(pred)
+            print(y)
             plt.plot(pred[0])
+            plt.plot(y)
             plt.show()
             print(np.sum(pred[0]))
 
