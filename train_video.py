@@ -11,12 +11,12 @@ from keras.optimizers import SGD, Adam
 data_dir = os.getcwd() + '/data/'
 video_dir = 'speed_videos/'
 annotation_dir = 'speed_annotations/'
-learning_rate = 0.1
-batch_size = 4
+learning_rate = 0.01
+batch_size = 16
 num_filters = 32
 kernel_size = 8
 kernel_frames = 8
-frame_size = 64
+frame_size = 32
 window_size = 32
 
 
@@ -121,7 +121,7 @@ print('Max Frames:', max_frames)
 encoder = Input(shape=(window_size, frame_size, frame_size, 3), name='video')
 output = Conv3D(num_filters, (kernel_frames, kernel_size, kernel_size), activation='relu')(encoder)
 output = MaxPooling3D(pool_size=(5, 2, 2), strides=(5, 2, 2))(output)
-output = Conv3D(64, (3, 3, 3), activation='relu')(output)
+output = Conv3D(16, (3, 3, 3), activation='relu')(output)
 output = MaxPooling3D(pool_size=(1, 2, 2), strides=(5, 2, 2))(output)
 #output = Conv3D(128, (2, 2, 2), activation='relu')(output)
 #output = MaxPooling3D(pool_size=(1, 2, 2), strides=(1, 2, 2))(output)
@@ -154,8 +154,8 @@ model.compile(loss='binary_crossentropy',
 print(model.summary())
 
 history = model.fit_generator(generate_batch(max_frames),
-                              epochs=20,
-                              steps_per_epoch=4,
+                              epochs=200,
+                              steps_per_epoch=8,
                               verbose=1)
 
 # Save the weights

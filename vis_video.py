@@ -19,6 +19,10 @@ kernel_frames = 8
 frame_size = 32
 window_size = 32
 
+vis_frames = 32
+vis_size = 32
+vis_iter = 200
+
 
 def video_to_flow_field(video):
     flow = np.array([])
@@ -84,6 +88,24 @@ def plot_weights(weights):
         plt.clf()
 
 
+# util function to convert a tensor into a valid image
+def deprocess_image(x):
+    # normalize tensor: center on 0., ensure std is 0.1
+    x -= x.mean()
+    x /= (x.std() + 1e-5)
+    x *= 0.1
+
+    # clip to [0, 1]
+    x += 0.5
+    x = np.clip(x, 0, 1)
+
+    # convert to RGB array
+    x *= 255
+    x = x.transpose((1, 2, 0))
+    x = np.clip(x, 0, 255).astype('uint8')
+    return x
+
+
 def plot_conv_layer():
     # load data
     dir = 'models/'
@@ -94,15 +116,17 @@ def plot_conv_layer():
 
     # get the symbolic outputs of each "key" layer (we gave them unique names).
     layer_dict = dict([(layer.name, layer) for layer in model.layers])
+    print(layer_dict)
 
-    noise_batch = np.random.random((1, 32, 32, 32, 3)) * 255.0
-    filter_index = 3
+    noise_batch = np.random.random((1, vis_frames, vis_size, vis_size, 3)) * 20.0 + 128.
+    filter_index = 12
 
-    # build a loss function that maximizes the activation
-    # of the nth filter of the layer considered
-    layer_output = layer_dict['conv3d_1'].output
+    layer_name = 'max_pooling3d_2'
+    layer_output = layer_dict[layer_name].output
     input_img = model.input
     print(layer_output)
+    # build a loss function that maximizes the activation
+    # of the nth filter of the layer considered
     loss = K.mean(layer_output[:, :, :, :, filter_index])
     # compute the gradient of the input picture wrt this loss
     grads = K.gradients(loss, input_img)[0]
@@ -115,25 +139,20 @@ def plot_conv_layer():
 
     step = 1.
     # run gradient ascent for 20 steps
-    for i in range(50):
+    for i in range(vis_iter):
         loss_value, grads_value = iterate([noise_batch])
-        print('Loss:', loss_value)
+        print(i, 'Loss:', loss_value)
         noise_batch += grads_value * step
 
     frame_i = 0
-    for img in noise_batch[0]:
+    for frame in noise_batch[0]:
+        img = deprocess_image(frame)
+        img = np.reshape(img, (vis_size, vis_size, 3))
         plt.imshow(img)
+        plt.title(layer_name + ': ' + str(filter_index))
         plt.savefig('conv_vis/' + str(frame_i) + '.png')
         plt.clf()
         frame_i += 1
-
-    '''
-    conv_embds = model.layers[1].get_weights()
-    print(conv_embds[0].shape)
-    weights = np.reshape(conv_embds[0], (32, kernel_frames, kernel_size, kernel_size, 3))
-    print(weights)
-    plot_weights(weights)
-    '''
 
 
 def predict_test():
