@@ -2,6 +2,20 @@
 This is a an experimental side project using a convolutional neural network to count competitive jump roping speed events.
 I will be keeping track of progress on this repository and am open to any contributions.
 
+This project requires Python 3+ and the following packages:
+
+-Keras
+
+-Tensorflow
+
+-Numpy
+
+-OpenCV
+
+-Matplotlib
+
+
+
 Currently there are two implementations which can be found in `train_video.py` and `train_flow.py`
 
 `train_video.py` trains the model using the RGB pixel values from the videos
