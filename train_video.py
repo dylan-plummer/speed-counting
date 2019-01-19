@@ -12,7 +12,7 @@ data_dir = os.getcwd() + '/data/'
 video_dir = 'speed_videos/'
 annotation_dir = 'speed_annotations/'
 learning_rate = 0.01
-batch_size = 16
+batch_size = 32
 num_filters = 32
 kernel_size = 8
 kernel_frames = 8
@@ -120,11 +120,12 @@ print('Max Frames:', max_frames)
 
 encoder = Input(shape=(window_size, frame_size, frame_size, 3), name='video')
 output = Conv3D(num_filters, (kernel_frames, kernel_size, kernel_size), activation='relu')(encoder)
-output = MaxPooling3D(pool_size=(5, 2, 2), strides=(5, 2, 2))(output)
-output = Conv3D(16, (3, 3, 3), activation='relu')(output)
-output = MaxPooling3D(pool_size=(1, 2, 2), strides=(5, 2, 2))(output)
+output = MaxPooling3D(pool_size=(4, 2, 2), strides=(4, 2, 2))(output)
+output = Conv3D(64, (4, 4, 4), activation='relu')(output)
+output = MaxPooling3D(pool_size=(3, 2, 2), strides=(3, 2, 2))(output)
 #output = Conv3D(128, (2, 2, 2), activation='relu')(output)
 #output = MaxPooling3D(pool_size=(1, 2, 2), strides=(1, 2, 2))(output)
+output = Dense(256, activation='relu')(output)
 output = Dense(512, activation='relu')(output)
 output = Flatten()(output)
 repetitions = Dense(1, activation='sigmoid', name='count')(output)
@@ -147,7 +148,7 @@ loss_weights = {
 
 model.compile(loss='binary_crossentropy',
               #loss_weights=loss_weights,
-              optimizer=sgd,
+              optimizer=adam,
               metrics=['acc'])
 
 # model.compile(loss='mse', optimizer='rmsprop')
