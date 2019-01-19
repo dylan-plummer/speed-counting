@@ -119,9 +119,9 @@ def plot_conv_layer():
     print(layer_dict)
 
     noise_batch = np.random.random((1, vis_frames, vis_size, vis_size, 3)) * 20.0 + 128.
-    filter_index = 12
+    filter_index = 31
 
-    layer_name = 'max_pooling3d_2'
+    layer_name = 'conv3d_2'
     layer_output = layer_dict[layer_name].output
     input_img = model.input
     print(layer_output)
