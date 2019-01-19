@@ -24,7 +24,7 @@ Currently there are two implementations which can be found in `train_video.py` a
 
 Further testing is needed to see which method is better or if it is viable to combine them together for a multi-input network.
 
-By optimizing the input space with respect to a specific layer's activation we can visualize what specific kernels are looking for:
+By optimizing the input space with respect to a specific layer's activation we can visualize what each 3D convolution kernel is looking for:
 
 ![](demos/layers_vis.webp)
 
