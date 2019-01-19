@@ -8,6 +8,7 @@ import os
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from keras.models import model_from_json, Model
+from keras import backend as K
 from keras.utils import np_utils
 
 data_dir = os.getcwd() + '/data/'
@@ -16,7 +17,11 @@ annotation_dir = 'speed_annotations/'
 kernel_size = 8
 kernel_frames = 8
 frame_size = 32
-window_size = 64
+window_size = 32
+
+vis_frames = 32
+vis_size = 32
+vis_iter = 200
 
 
 def video_to_flow_field(video):
@@ -72,15 +77,8 @@ def plot_weights(weights):
         for i in range(len(weights)):
             r = i // 4
             c = i % 4
-            x, y = np.meshgrid(np.arange(kernel_size), np.arange(kernel_size))
-            u = weights[i][frame_i][..., 0]
-            v = weights[i][frame_i][..., 1]
-            mag, ang = cv2.cartToPolar(u, v)
-            hsv = np.zeros((kernel_size, kernel_size, 3))
-            hsv[..., 1] = 255
-            hsv[..., 0] = ang * 180 // np.pi // 2
-            hsv[..., 2] = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX)
-            bgr = cv2.cvtColor(np.uint8(hsv), cv2.COLOR_HSV2RGB_FULL)
+            img = weights[i][frame_i]
+            bgr = cv2.cvtColor(np.uint8(img), cv2.COLOR_HSV2RGB_FULL)
             axes[r][c].imshow(bgr)
             #axes[r][c].quiver(x, y, u, v, mag, edgecolor='k', width=0.05, pivot='tip')
             axes[r][c].set_xticks([])
@@ -90,6 +88,24 @@ def plot_weights(weights):
         plt.clf()
 
 
+# util function to convert a tensor into a valid image
+def deprocess_image(x):
+    # normalize tensor: center on 0., ensure std is 0.1
+    x -= x.mean()
+    x /= (x.std() + 1e-5)
+    x *= 0.1
+
+    # clip to [0, 1]
+    x += 0.5
+    x = np.clip(x, 0, 1)
+
+    # convert to RGB array
+    x *= 255
+    x = x.transpose((1, 2, 0))
+    x = np.clip(x, 0, 255).astype('uint8')
+    return x
+
+
 def plot_conv_layer():
     # load data
     dir = 'models/'
@@ -97,16 +113,46 @@ def plot_conv_layer():
         model = model_from_json(f.read())
     # Load weights into the new model
     model.load_weights(dir + 'model_weights.h5')
-    layer_outputs = [layer.output for layer in model.layers]
-    print(layer_outputs)
-    for layer in layer_outputs:
-        print(layer)
-    #print(model.layers[1].get_weights())
-    conv_embds = model.layers[1].get_weights()
-    print(conv_embds[0].shape)
-    weights = np.reshape(conv_embds[0], (32, kernel_frames, kernel_size, kernel_size, 2))
-    print(weights)
-    plot_weights(weights)
+
+    # get the symbolic outputs of each "key" layer (we gave them unique names).
+    layer_dict = dict([(layer.name, layer) for layer in model.layers])
+    print(layer_dict)
+
+    noise_batch = np.random.random((1, vis_frames, vis_size, vis_size, 3)) * 20.0 + 128.
+    filter_index = 12
+
+    layer_name = 'max_pooling3d_2'
+    layer_output = layer_dict[layer_name].output
+    input_img = model.input
+    print(layer_output)
+    # build a loss function that maximizes the activation
+    # of the nth filter of the layer considered
+    loss = K.mean(layer_output[:, :, :, :, filter_index])
+    # compute the gradient of the input picture wrt this loss
+    grads = K.gradients(loss, input_img)[0]
+
+    # normalization trick: we normalize the gradient
+    grads /= (K.sqrt(K.mean(K.square(grads))) + 1e-5)
+
+    # this function returns the loss and grads given the input picture
+    iterate = K.function([input_img], [loss, grads])
+
+    step = 1.
+    # run gradient ascent for 20 steps
+    for i in range(vis_iter):
+        loss_value, grads_value = iterate([noise_batch])
+        print(i, 'Loss:', loss_value)
+        noise_batch += grads_value * step
+
+    frame_i = 0
+    for frame in noise_batch[0]:
+        img = deprocess_image(frame)
+        img = np.reshape(img, (vis_size, vis_size, 3))
+        plt.imshow(img)
+        plt.title(layer_name + ': ' + str(filter_index))
+        plt.savefig('conv_vis/' + str(frame_i) + '.png')
+        plt.clf()
+        frame_i += 1
 
 
 def predict_test():
@@ -129,7 +175,7 @@ def predict_test():
             y = np.zeros(window_size)
             for frame in label_clip:
                 y[frame - start_frame] = 1
-            pred = model.predict(np.array([flow_field]))
+            pred = model.predict(np.array([clip]))
             print(pred)
             print(y)
             plt.plot(pred[0])
@@ -138,6 +184,6 @@ def predict_test():
             print(np.sum(pred[0]))
 
 
-predict_test()
+#predict_test()
 plot_conv_layer()
 
