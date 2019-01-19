@@ -22,6 +22,8 @@ Currently there are two implementations which can be found in `train_video.py` a
 
 `train_flow.py` trains the model by first calculating a vector field of the motion in the video using the Lucas-Kanade method of optical flow
 
+Further testing is needed to see which method is better or if it is viable to combine them together for a multi-input network.
+
 By optimizing the input space with respect to a specific layer's activation we can visualize the network:
 
 ![](demos/layers_vis.webp)
