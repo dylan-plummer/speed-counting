@@ -26,7 +26,9 @@ Further testing is needed to see which method is better or if it is viable to co
 
 By optimizing the input space with respect to a specific layer's activation we can visualize what each 3D convolution kernel is looking for:
 
-![](demos/layers_vis.webp)
+![](demos/conv_1.webp)
+
+![](demos/dense_2.webp)
 
 These figures can be generated using the `vis_video.py` script
 
