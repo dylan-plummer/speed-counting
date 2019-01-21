@@ -30,9 +30,9 @@ By optimizing the input space with respect to a specific layer's activation we c
 
 ![](demos/dense_2.webp)
 
-These figures can be generated using the `vis_video.py` script
+These figures can be generated using the `vis_video.py` script.
 
-My current interpretation for why the network has learned kernels with three "columns" is due to the fact that I am attempting to train the network to be left-right invariant. So when detecting a right footed jump where the jumper is directly facing the camera, the center column of the kernel is activated by that right foot and the right column of the kernel is activated by the left foot.  Left footed jumps would activate the center column and the left column.  However if we apply the same optimization when the model is trained on motion fields, the kernels are slightly different:
+Here are some visualizations of kernels from the model trained on motion flow:
 
 ![](demos/conv_1_flow.webp)
 
