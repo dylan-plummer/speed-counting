@@ -28,7 +28,7 @@ By optimizing the input space with respect to a specific layer's activation we c
 
 ![](demos/conv_1.webp)
 
-![](demos/dense_2.webp)
+![](demos/dense_2_flow.webp)
 
 These figures can be generated using the `vis_video.py` script.
 
