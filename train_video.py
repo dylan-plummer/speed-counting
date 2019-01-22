@@ -4,20 +4,23 @@ import os
 import matplotlib.pyplot as plt
 
 from keras.models import Sequential, Model
-from keras.layers import Dense, Activation, Conv3D, MaxPooling3D, BatchNormalization, Input, GlobalMaxPooling3D, Embedding, Flatten, LSTM
+from keras.layers import Dense, Activation, Conv2D, MaxPooling2D, Conv3D, MaxPooling3D, AveragePooling3D, BatchNormalization, Input, GlobalMaxPooling3D, Embedding, Flatten, LSTM, TimeDistributed
 from keras.layers import SpatialDropout1D
 from keras.optimizers import SGD, Adam
+
+from data_helpers import smooth, fit_sin
 
 data_dir = os.getcwd() + '/data/'
 video_dir = 'speed_videos/'
 annotation_dir = 'speed_annotations/'
 learning_rate = 0.01
-batch_size = 32
+batch_size = 16
+num_epochs = 50
 num_filters = 32
-kernel_size = 8
-kernel_frames = 8
-frame_size = 32
-window_size = 32
+kernel_size = 16
+kernel_frames = 4
+frame_size = 64
+window_size = 4
 
 
 def video_to_flow_field(video):
@@ -29,25 +32,25 @@ def video_to_flow_field(video):
 
 
 def open_video(file, window_size):
-    #print('\nOpening', file)
     cap = cv2.VideoCapture(file)
     frameCount = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     frameWidth = frame_size
     frameHeight = frame_size
 
-    buf = np.empty((frameCount, frameHeight, frameWidth, 3), np.dtype('uint8'))
+    buf = np.zeros((frameCount, frameHeight, frameWidth, 3))
 
     fc = 0
     ret = 1
 
-    while cap.isOpened():
+    while True:
         try:
-            ret, buf[fc] = cv2.resize(cap.read(), (frame_size, frame_size))
+            ret, img = cap.read()
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            img = cv2.resize(img, (frame_size, frame_size))
+            buf[fc] = img.copy()
             fc += 1
-        except:
-            # print('Done reading video')
+        except Exception as e:
             break
-    #print('Done reading video')
     cap.release()
     return buf
 
@@ -93,7 +96,7 @@ def generate_batch(max_frames):
             for start_frame in range(random_offset, len(video), window_size):
                 if start_frame + window_size < len(video):
                     clip = video[start_frame:start_frame + window_size]
-                    flow_field = video_to_flow_field(clip)
+                    #flow_field = video_to_flow_field(clip)
                     label_clip = label[np.where(label < start_frame + window_size)]
                     label_clip = label_clip[np.where(label_clip > start_frame)]
                     #print(label_clip)
@@ -101,8 +104,11 @@ def generate_batch(max_frames):
                     y = np.zeros(window_size)
                     for frame in label_clip:
                         y[frame - start_frame] = 1
+                    smoothed_y = np. zeros(window_size)
+                    if y.any() != 0:
+                        smoothed_y = fit_sin(np.arange(0, window_size), y, window_size)
                     x_batch = np.append(x_batch, clip)
-                    y_batch = np.append(y_batch, y)
+                    y_batch = np.append(y_batch, smoothed_y)
                     total_batch = np.append(total_batch, np.sum(y))
                     num_clips += 1
                     if num_clips == batch_size:
@@ -119,15 +125,33 @@ max_frames = get_max_length() + 1
 print('Max Frames:', max_frames)
 
 encoder = Input(shape=(window_size, frame_size, frame_size, 3), name='video')
-output = Conv3D(num_filters, (kernel_frames, kernel_size, kernel_size), activation='relu')(encoder)
-output = MaxPooling3D(pool_size=(4, 2, 2), strides=(4, 2, 2))(output)
-output = Conv3D(64, (4, 4, 4), activation='relu')(output)
-output = MaxPooling3D(pool_size=(3, 2, 2), strides=(3, 2, 2))(output)
+output = TimeDistributed(Conv2D(num_filters, (kernel_size, kernel_size), border_mode='valid'))(encoder)
+output = BatchNormalization()(output)
+output = Activation('relu')(output)
+output = TimeDistributed(Conv2D(64, (8, 8), border_mode='valid'))(output)
+output = BatchNormalization()(output)
+output = Activation('relu')(output)
+output = TimeDistributed(Conv2D(128, (4, 4), border_mode='valid'))(output)
+output = BatchNormalization()(output)
+output = Activation('relu')(output)
+output = TimeDistributed(Conv2D(256, (2, 2), border_mode='valid'))(output)
+output = BatchNormalization()(output)
+output = Activation('relu')(output)
+output = TimeDistributed(MaxPooling2D(pool_size=(2, 2)))(output)
+#output = Conv3D(num_filters, (kernel_frames, kernel_size, kernel_size), activation='relu')(encoder)
+#output = MaxPooling3D(pool_size=(2, 2, 2), strides=(4, 2, 2))(output)
+#output = Conv3D(64, (3, 3, 3), activation='relu')(output)
+#output = MaxPooling3D(pool_size=(2, 2, 2), strides=(3, 2, 2))(output)
+
+#output = LSTM(100, input_shape=(batch_size, 1, window_size - 1, 32, 32, 2))(output)
 #output = Conv3D(128, (2, 2, 2), activation='relu')(output)
 #output = MaxPooling3D(pool_size=(1, 2, 2), strides=(1, 2, 2))(output)
-output = Dense(256, activation='relu')(output)
-output = Dense(512, activation='relu')(output)
-output = Flatten()(output)
+#output = TimeDistributed(Dense(256, activation='relu'))(output)
+#output = TimeDistributed(Dense(512, activation='relu'))(output)
+output = TimeDistributed(Dense(128, activation='relu'))(output)
+output = TimeDistributed(Flatten())(output)
+output = LSTM(100)(output)
+#output = TimeDistributed(Flatten())(output)
 repetitions = Dense(1, activation='sigmoid', name='count')(output)
 output = Dense(window_size, activation='sigmoid', name='frames')(output)
 model = Model(inputs=encoder,
@@ -146,16 +170,16 @@ loss_weights = {
     'count': 0.25,
 }
 
-model.compile(loss='binary_crossentropy',
+model.compile(loss='mse',
               #loss_weights=loss_weights,
-              optimizer=adam,
+              optimizer=sgd,
               metrics=['acc'])
 
 # model.compile(loss='mse', optimizer='rmsprop')
 print(model.summary())
 
 history = model.fit_generator(generate_batch(max_frames),
-                              epochs=200,
+                              epochs=num_epochs,
                               steps_per_epoch=8,
                               verbose=1)
 

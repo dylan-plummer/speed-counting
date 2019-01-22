@@ -11,17 +11,19 @@ from keras.models import model_from_json, Model
 from keras import backend as K
 from keras.utils import np_utils
 
+from data_helpers import smooth, fit_sin
+
 data_dir = os.getcwd() + '/data/'
 video_dir = 'speed_videos/'
 annotation_dir = 'speed_annotations/'
 kernel_size = 8
-kernel_frames = 8
+kernel_frames = 4
 frame_size = 32
-window_size = 32
+window_size = 4
 
-vis_frames = 32
+vis_frames = 4
 vis_size = 32
-vis_iter = 200
+vis_iter = 100
 
 
 def video_to_flow_field(video):
@@ -39,21 +41,35 @@ def open_video(file, window_size):
     frameWidth = frame_size
     frameHeight = frame_size
 
-    buf = np.empty((frameCount, frameHeight, frameWidth, 3), np.dtype('uint8'))
+    buf = np.zeros((frameCount, frameHeight, frameWidth, 3))
 
     fc = 0
     ret = 1
 
     while True:
         try:
-            ret, buf[fc] = cv2.resize(cap.read(), (frame_size, frame_size))
+            ret, img = cap.read()
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            img = cv2.resize(img, (frame_size, frame_size))
+            buf[fc] = img.copy()
             fc += 1
-        except:
+        except Exception as e:
+            print(e)
             # print('Done reading video')
             break
     print('Done reading video')
     cap.release()
     return buf
+
+
+def flow_to_rgb(flow):
+    mag, ang = cv2.cartToPolar(flow[..., 0], flow[..., 1])
+    hsv = np.zeros((flow.shape[0], flow.shape[1], 3))
+    hsv[..., 1] = 255
+    hsv[..., 0] = ang * 180 / np.pi / 2
+    hsv[..., 2] = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX)
+    bgr = cv2.cvtColor(np.uint8(hsv), cv2.COLOR_HSV2BGR)
+    return bgr
 
 
 def get_flow_field(video, i, j):
@@ -88,6 +104,25 @@ def plot_weights(weights):
         plt.clf()
 
 
+def plot_clip(clip):
+    rows = window_size // 2
+    cols = window_size // rows
+    fig, axes = plt.subplots(rows, cols)
+    for i in range(len(clip)):
+        r = i // cols
+        c = i % cols
+        img = np.uint8(clip[i])
+        print(img.shape)
+        # img = np.reshape(img, (vis_size, vis_size, 3))
+        # img = flow_to_rgb(np.float32(img))
+        axes[r][c].imshow(img)
+        axes[r][c].set_title(str(i))
+        axes[r][c].set_xticks([])
+        axes[r][c].set_yticks([])
+    plt.tight_layout()
+    plt.show()
+
+
 # util function to convert a tensor into a valid image
 def deprocess_image(x):
     # normalize tensor: center on 0., ensure std is 0.1
@@ -101,7 +136,7 @@ def deprocess_image(x):
 
     # convert to RGB array
     x *= 255
-    x = x.transpose((1, 2, 0))
+    #x = x.transpose((1, 2, 0))
     x = np.clip(x, 0, 255).astype('uint8')
     return x
 
@@ -117,42 +152,78 @@ def plot_conv_layer():
     # get the symbolic outputs of each "key" layer (we gave them unique names).
     layer_dict = dict([(layer.name, layer) for layer in model.layers])
     print(layer_dict)
-
-    noise_batch = np.random.random((1, vis_frames, vis_size, vis_size, 3)) * 20.0 + 128.
-    filter_index = 31
-
-    layer_name = 'conv3d_2'
+    visualizations = np.array([])
+    layer_name = 'activation_3'
     layer_output = layer_dict[layer_name].output
     input_img = model.input
     print(layer_output)
-    # build a loss function that maximizes the activation
-    # of the nth filter of the layer considered
-    loss = K.mean(layer_output[:, :, :, :, filter_index])
-    # compute the gradient of the input picture wrt this loss
-    grads = K.gradients(loss, input_img)[0]
+    rows = 3
+    cols = 3
+    num_filters = rows * cols
+    active_layers = 0  # keeps track of number of activated layers currently in the visualization
+    filter_index = 0
 
-    # normalization trick: we normalize the gradient
-    grads /= (K.sqrt(K.mean(K.square(grads))) + 1e-5)
+    while active_layers < num_filters:
 
-    # this function returns the loss and grads given the input picture
-    iterate = K.function([input_img], [loss, grads])
+        noise_batch = np.random.random((1, vis_frames, vis_size, vis_size, 3))
+        # build a loss function that maximizes the activation
+        # of the nth filter of the layer considered
+        try:
+            loss = K.mean(layer_output[..., filter_index])
+        except Exception as e:
+            print(e)
+            layer_name = 'activation_3'
+            layer_output = layer_dict[layer_name].output
+            filter_index = 0
 
-    step = 1.
-    # run gradient ascent for 20 steps
-    for i in range(vis_iter):
-        loss_value, grads_value = iterate([noise_batch])
-        print(i, 'Loss:', loss_value)
-        noise_batch += grads_value * step
+        # compute the gradient of the input picture wrt this loss
+        grads = K.gradients(loss, input_img)[0]
 
-    frame_i = 0
-    for frame in noise_batch[0]:
-        img = deprocess_image(frame)
-        img = np.reshape(img, (vis_size, vis_size, 3))
-        plt.imshow(img)
-        plt.title(layer_name + ': ' + str(filter_index))
-        plt.savefig('conv_vis/' + str(frame_i) + '.png')
+        # normalization trick: we normalize the gradient
+        grads /= (K.sqrt(K.mean(K.square(grads))) + 1e-5)
+
+        # this function returns the loss and grads given the input picture
+        iterate = K.function([input_img], [loss, grads])
+
+        filter_index += 1
+
+        step = 1.
+        # run gradient ascent for 20 steps
+        for i in range(vis_iter):
+            loss_value, grads_value = iterate([noise_batch])
+            if loss_value == 0:
+                #print('Neuron', filter_index, 'not activated')
+                break
+            #print(i, 'Loss:', loss_value)
+            noise_batch += grads_value * step
+        if loss_value != 0:
+            active_layers += 1
+            print(active_layers, '/', num_filters)
+            visualizations = np.append(visualizations, noise_batch)
+
+    visualizations = np.reshape(visualizations, (num_filters, 1, vis_frames, vis_size, vis_size, 3))
+
+    for frame_i in range(vis_frames):
+        fig, axes = plt.subplots(rows, cols)
+        print('Saving frame', frame_i)
+        for i in range(num_filters):
+            r = i // cols
+            c = i % cols
+            frame = visualizations[i][0][frame_i]
+            img = deprocess_image(frame)
+            #img = np.reshape(img, (vis_size, vis_size, 3))
+            #img = flow_to_rgb(np.float32(img))
+            axes[r][c].imshow(img)
+            axes[r][c].set_title(layer_name + ': ' + str(i))
+            axes[r][c].set_xticks([])
+            axes[r][c].set_yticks([])
+        try:
+            os.mkdir('conv_vis/' + layer_name)
+        except OSError:
+            print('Directory', layer_name, 'already exists')
+        plt.tight_layout()
+        plt.savefig('conv_vis/' + layer_name + '/' + str(frame_i) + '.png')
         plt.clf()
-        frame_i += 1
 
 
 def predict_test():
@@ -166,24 +237,32 @@ def predict_test():
     label = np.load(label_path)
     video = open_video(data_dir + video_dir + video_path, window_size=window_size)
     num_clips = 0
-    for start_frame in range(0, len(video), window_size):
+    smoothed_y = np.zeros(window_size)
+    while smoothed_y.all() == 0:
+        start_frame = np.random.randint(0, len(video) - window_size)
         if start_frame + window_size < len(video):
             clip = video[start_frame:start_frame + window_size]
-            flow_field = video_to_flow_field(clip)
+            #flow_field = video_to_flow_field(clip)
             label_clip = label[np.where(label < start_frame + window_size)]
             label_clip = label_clip[np.where(label_clip > start_frame)]
             y = np.zeros(window_size)
             for frame in label_clip:
                 y[frame - start_frame] = 1
+            if y.any() != 0:
+                print('fitting:')
+                smoothed_y = fit_sin(np.arange(0, window_size), y, window_size)
+                print('Smoothed', smoothed_y)
             pred = model.predict(np.array([clip]))
             print(pred)
             print(y)
+            plot_clip(clip)
             plt.plot(pred[0])
-            plt.plot(y)
+            plt.scatter(np.arange(0, window_size), y)
+            plt.plot(smoothed_y)
             plt.show()
             print(np.sum(pred[0]))
 
 
-#predict_test()
+predict_test()
 plot_conv_layer()
 
