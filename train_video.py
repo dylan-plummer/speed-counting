@@ -13,14 +13,16 @@ from data_helpers import smooth, fit_sin
 data_dir = os.getcwd() + '/data/'
 video_dir = 'speed_videos/'
 annotation_dir = 'speed_annotations/'
-learning_rate = 0.01
-batch_size = 16
+learning_rate = 1e-4
+batch_size = 8
 num_epochs = 50
 num_filters = 32
-kernel_size = 16
+kernel_size = 32
 kernel_frames = 4
-frame_size = 64
-window_size = 4
+frame_size = 256
+window_size = 5
+
+use_flow_field = True
 
 
 def video_to_flow_field(video):
@@ -31,7 +33,7 @@ def video_to_flow_field(video):
     return np.reshape(flow, (video.shape[0] - 1, video.shape[1], video.shape[2], 2))
 
 
-def open_video(file, window_size):
+def open_video(file, window_size, flow_field=False):
     cap = cv2.VideoCapture(file)
     frameCount = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     frameWidth = frame_size
@@ -46,7 +48,7 @@ def open_video(file, window_size):
         try:
             ret, img = cap.read()
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            img = cv2.resize(img, (frame_size, frame_size))
+            img = cv2.resize(img, (frame_size, frame_size), interpolation=cv2.INTER_AREA)
             buf[fc] = img.copy()
             fc += 1
         except Exception as e:
@@ -80,7 +82,7 @@ def get_max_length():
     return max_frames
 
 
-def generate_batch(max_frames):
+def generate_batch(batch_size):
     global data_dir
     x_batch = np.array([])
     y_batch = np.array([])
@@ -96,114 +98,139 @@ def generate_batch(max_frames):
             for start_frame in range(random_offset, len(video), window_size):
                 if start_frame + window_size < len(video):
                     clip = video[start_frame:start_frame + window_size]
-                    #flow_field = video_to_flow_field(clip)
+                    flow_field = video_to_flow_field(np.uint8(clip))
                     label_clip = label[np.where(label < start_frame + window_size)]
                     label_clip = label_clip[np.where(label_clip > start_frame)]
-                    #print(label_clip)
-                    #start_frame += window_size
                     y = np.zeros(window_size)
                     for frame in label_clip:
                         y[frame - start_frame] = 1
-                    smoothed_y = np. zeros(window_size)
-                    if y.any() != 0:
-                        smoothed_y = fit_sin(np.arange(0, window_size), y, window_size)
-                    x_batch = np.append(x_batch, clip)
-                    y_batch = np.append(y_batch, smoothed_y)
+                    if y.any() == 1:
+                        binary_y = 1
+                    else:
+                        binary_y = 0
+                    if use_flow_field:
+                        x_batch = np.append(x_batch, flow_field)
+                    else:
+                        x_batch = np.append(x_batch, clip / 255.)
+                    y_batch = np.append(y_batch, binary_y)
                     total_batch = np.append(total_batch, np.sum(y))
                     num_clips += 1
                     if num_clips == batch_size:
                         num_clips = 0
-                        x_batch = np.reshape(x_batch, (-1, window_size, frame_size, frame_size, 3))
-                        y_batch = np.reshape(y_batch, (-1, window_size))
+                        if use_flow_field:
+                            x_batch = np.reshape(x_batch, (-1, window_size - 1, frame_size, frame_size, 2))
+                        else:
+                            x_batch = np.reshape(x_batch, (-1, window_size, frame_size, frame_size, 3))
+                        #y_batch = np.reshape(y_batch, (-1, 1))
                         yield {'video': x_batch}, {'frames': y_batch}
                         x_batch = np.array([])
                         y_batch = np.array([])
                         total_batch = np.array([])
+        print('Trained on all videos.')
 
 
-max_frames = get_max_length() + 1
-print('Max Frames:', max_frames)
+if __name__ == '__main__':
 
-encoder = Input(shape=(window_size, frame_size, frame_size, 3), name='video')
-output = TimeDistributed(Conv2D(num_filters, (kernel_size, kernel_size), border_mode='valid'))(encoder)
-output = BatchNormalization()(output)
-output = Activation('relu')(output)
-output = TimeDistributed(Conv2D(64, (8, 8), border_mode='valid'))(output)
-output = BatchNormalization()(output)
-output = Activation('relu')(output)
-output = TimeDistributed(Conv2D(128, (4, 4), border_mode='valid'))(output)
-output = BatchNormalization()(output)
-output = Activation('relu')(output)
-output = TimeDistributed(Conv2D(256, (2, 2), border_mode='valid'))(output)
-output = BatchNormalization()(output)
-output = Activation('relu')(output)
-output = TimeDistributed(MaxPooling2D(pool_size=(2, 2)))(output)
-#output = Conv3D(num_filters, (kernel_frames, kernel_size, kernel_size), activation='relu')(encoder)
-#output = MaxPooling3D(pool_size=(2, 2, 2), strides=(4, 2, 2))(output)
-#output = Conv3D(64, (3, 3, 3), activation='relu')(output)
-#output = MaxPooling3D(pool_size=(2, 2, 2), strides=(3, 2, 2))(output)
+    max_frames = get_max_length() + 1
+    print('Max Frames:', max_frames)
 
-#output = LSTM(100, input_shape=(batch_size, 1, window_size - 1, 32, 32, 2))(output)
-#output = Conv3D(128, (2, 2, 2), activation='relu')(output)
-#output = MaxPooling3D(pool_size=(1, 2, 2), strides=(1, 2, 2))(output)
-#output = TimeDistributed(Dense(256, activation='relu'))(output)
-#output = TimeDistributed(Dense(512, activation='relu'))(output)
-output = TimeDistributed(Dense(128, activation='relu'))(output)
-output = TimeDistributed(Flatten())(output)
-output = LSTM(100)(output)
-#output = TimeDistributed(Flatten())(output)
-repetitions = Dense(1, activation='sigmoid', name='count')(output)
-output = Dense(window_size, activation='sigmoid', name='frames')(output)
-model = Model(inputs=encoder,
-              outputs=output)
+    if use_flow_field:
+        encoder = Input(shape=(window_size - 1, frame_size, frame_size, 2), name='video')
+    else:
+        encoder = Input(shape=(window_size, frame_size, frame_size, 3), name='video')
+    output = Conv3D(4, (2, 16, 16))(encoder)
+    output = BatchNormalization()(output)
+    output = Activation('relu')(output)
+    output = MaxPooling3D((1, 2, 2))(output)
+    output = Conv3D(8, (2, 8, 8))(output)
+    output = BatchNormalization()(output)
+    output = Activation('relu')(output)
+    output = MaxPooling3D((1, 2, 2))(output)
+    output = Conv3D(16, (1, 4, 4))(output)
+    output = BatchNormalization()(output)
+    output = Activation('relu')(output)
+    output = MaxPooling3D((1, 2, 2))(output)
+    output = Conv3D(32, (1, 3, 3))(output)
+    output = BatchNormalization()(output)
+    output = Activation('relu')(output)
+    output = MaxPooling3D((1, 2, 2))(output)
+    output = Conv3D(64, (1, 3, 3))(output)
+    output = BatchNormalization()(output)
+    output = Activation('relu')(output)
+    output = MaxPooling3D((1, 2, 2))(output)
+    output = Conv3D(128, (1, 3, 3))(output)
+    output = BatchNormalization()(output)
+    output = Activation('relu')(output)
+    output = MaxPooling3D((1, 2, 2))(output)
 
-adam = Adam(lr=learning_rate)
-sgd = SGD(lr=learning_rate, nesterov=True, decay=1e-6, momentum=0.9)
+    #output = TimeDistributed(MaxPooling2D(pool_size=(4, 4)))(output)
+    #output = Conv3D(num_filters, (kernel_frames, kernel_size, kernel_size), activation='relu')(encoder)
+    #output = MaxPooling3D(pool_size=(2, 2, 2), strides=(4, 2, 2))(output)
+    #output = Conv3D(64, (3, 3, 3), activation='relu')(output)
+    #output = MaxPooling3D(pool_size=(2, 2, 2), strides=(3, 2, 2))(output)
 
-losses = {
-    'frames': 'mse',
-    'count': 'mse',
-}
+    #output = LSTM(100, input_shape=(batch_size, 1, window_size - 1, 32, 32, 2))(output)
+    #output = Conv3D(128, (2, 2, 2), activation='relu')(output)
+    #output = MaxPooling3D(pool_size=(1, 2, 2), strides=(1, 2, 2))(output)
+    #output = TimeDistributed(Dense(256, activation='relu'))(output)
+    #output = TimeDistributed(Dense(512, activation='relu'))(output)
+    #output = TimeDistributed(Dense(128, activation='relu'))(output)
+    output = Flatten()(output)
+    output = Dense(256, activation='relu')(output)
+    #output = LSTM(50)(output)
+    #output = TimeDistributed(Flatten())(output)
+    #repetitions = Dense(1, activation='sigmoid', name='count')(output)
+    output = Dense(1, activation='sigmoid', name='frames')(output)
+    model = Model(inputs=encoder,
+                  outputs=output)
 
-loss_weights = {
-    'frames': 0.75,
-    'count': 0.25,
-}
+    adam = Adam(lr=learning_rate)
+    sgd = SGD(lr=learning_rate, nesterov=True, decay=1e-6, momentum=0.9)
 
-model.compile(loss='mse',
-              #loss_weights=loss_weights,
-              optimizer=sgd,
-              metrics=['acc'])
+    losses = {
+        'frames': 'mse',
+        'count': 'mse',
+    }
 
-# model.compile(loss='mse', optimizer='rmsprop')
-print(model.summary())
+    loss_weights = {
+        'frames': 0.75,
+        'count': 0.25,
+    }
 
-history = model.fit_generator(generate_batch(max_frames),
-                              epochs=num_epochs,
-                              steps_per_epoch=8,
-                              verbose=1)
+    model.compile(loss='binary_crossentropy',
+                  #loss_weights=loss_weights,
+                  optimizer=sgd,
+                  metrics=['acc'])
 
-# Save the weights
-model.save_weights('models/model_weights.h5')
+    # model.compile(loss='mse', optimizer='rmsprop')
+    print(model.summary())
 
-# Save the model architecture
-with open('models/model_architecture.json', 'w') as f:
-    f.write(model.to_json())
+    history = model.fit_generator(generate_batch(batch_size),
+                                  epochs=num_epochs,
+                                  steps_per_epoch=100,
+                                  verbose=1)
 
-print(history.history.keys())
+    # Save the weights
+    model.save_weights('models/model_weights.h5')
 
-# summarize history for accuracy
-plt.plot(history.history['loss'])
-plt.title('model loss')
-plt.ylabel('loss')
-plt.xlabel('epoch')
-plt.legend(['total_loss', 'frames_loss', 'count_loss'], loc='upper left')
-plt.show()
+    # Save the model architecture
+    with open('models/model_architecture.json', 'w') as f:
+        f.write(model.to_json())
 
-plt.plot(history.history['acc'])
-plt.title('model accuracy')
-plt.ylabel('accuracy')
-plt.xlabel('epoch')
-plt.legend(['frame_acc'], loc='upper left')
-plt.show()
+    print(history.history.keys())
+
+    # summarize history for accuracy
+    plt.plot(history.history['loss'])
+    plt.title('model loss')
+    plt.ylabel('loss')
+    plt.xlabel('epoch')
+    plt.legend(['total_loss', 'frames_loss', 'count_loss'], loc='upper left')
+    plt.show()
+
+    plt.plot(history.history['acc'])
+    plt.title('model accuracy')
+    plt.ylabel('accuracy')
+    plt.xlabel('epoch')
+    plt.legend(['frame_acc'], loc='upper left')
+    plt.show()
 

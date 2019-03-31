@@ -6,24 +6,28 @@ import cv2
 import os
 
 import matplotlib.pyplot as plt
+from matplotlib.colors import hsv_to_rgb
 from mpl_toolkits.mplot3d import Axes3D
 from keras.models import model_from_json, Model
 from keras import backend as K
 from keras.utils import np_utils
 
 from data_helpers import smooth, fit_sin
+from train_video import generate_batch
 
 data_dir = os.getcwd() + '/data/'
 video_dir = 'speed_videos/'
 annotation_dir = 'speed_annotations/'
-kernel_size = 8
+kernel_size = 32
 kernel_frames = 4
-frame_size = 32
+frame_size = 256
 window_size = 4
 
 vis_frames = 4
-vis_size = 32
-vis_iter = 100
+vis_size = 256
+vis_iter = 10
+
+use_flow_field = True
 
 
 def video_to_flow_field(video):
@@ -68,20 +72,13 @@ def flow_to_rgb(flow):
     hsv[..., 1] = 255
     hsv[..., 0] = ang * 180 / np.pi / 2
     hsv[..., 2] = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX)
-    bgr = cv2.cvtColor(np.uint8(hsv), cv2.COLOR_HSV2BGR)
-    return bgr
+    return cv2.cvtColor(np.uint8(hsv), cv2.COLOR_HSV2RGB)
 
 
 def get_flow_field(video, i, j):
     prev = cv2.cvtColor(video[i], cv2.COLOR_BGR2GRAY)
     next = cv2.cvtColor(video[j], cv2.COLOR_BGR2GRAY)
     flow = cv2.calcOpticalFlowFarneback(prev, next, None, 0.5, 3, 15, 3, 5, 1.2, 0)
-    mag, ang = cv2.cartToPolar(flow[..., 0], flow[..., 1])
-    hsv = np.zeros_like(video[i])
-    hsv[..., 1] = 255
-    hsv[..., 0] = ang * 180 / np.pi / 2
-    hsv[..., 2] = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX)
-    bgr = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
     return flow
 
 
@@ -112,9 +109,9 @@ def plot_clip(clip):
         r = i // cols
         c = i % cols
         img = np.uint8(clip[i])
-        print(img.shape)
         # img = np.reshape(img, (vis_size, vis_size, 3))
-        # img = flow_to_rgb(np.float32(img))
+        if use_flow_field:
+            img = flow_to_rgb(np.float32(img))
         axes[r][c].imshow(img)
         axes[r][c].set_title(str(i))
         axes[r][c].set_xticks([])
@@ -141,38 +138,34 @@ def deprocess_image(x):
     return x
 
 
-def plot_conv_layer():
-    # load data
-    dir = 'models/'
-    with open(dir + 'model_architecture.json', 'r') as f:
-        model = model_from_json(f.read())
-    # Load weights into the new model
-    model.load_weights(dir + 'model_weights.h5')
-
-    # get the symbolic outputs of each "key" layer (we gave them unique names).
-    layer_dict = dict([(layer.name, layer) for layer in model.layers])
-    print(layer_dict)
+def plot_conv_layer(model, layer_name, layer_dict, input_video=None):
     visualizations = np.array([])
-    layer_name = 'activation_3'
     layer_output = layer_dict[layer_name].output
     input_img = model.input
     print(layer_output)
-    rows = 3
-    cols = 3
+    rows = 5
+    cols = 5
     num_filters = rows * cols
     active_layers = 0  # keeps track of number of activated layers currently in the visualization
     filter_index = 0
 
     while active_layers < num_filters:
-
-        noise_batch = np.random.random((1, vis_frames, vis_size, vis_size, 3))
+        if input_video is None:
+            if use_flow_field:
+                noise_batch = np.random.random((1, vis_frames - 1, vis_size, vis_size, 2))
+            else:
+                noise_batch = np.random.normal(1, size=(1, vis_frames, vis_size, vis_size, 3))
+        else:
+            if use_flow_field:
+                noise_batch = input_video
+            else:
+                noise_batch = input_video / 255.
         # build a loss function that maximizes the activation
         # of the nth filter of the layer considered
         try:
             loss = K.mean(layer_output[..., filter_index])
         except Exception as e:
             print(e)
-            layer_name = 'activation_3'
             layer_output = layer_dict[layer_name].output
             filter_index = 0
 
@@ -201,18 +194,25 @@ def plot_conv_layer():
             print(active_layers, '/', num_filters)
             visualizations = np.append(visualizations, noise_batch)
 
-    visualizations = np.reshape(visualizations, (num_filters, 1, vis_frames, vis_size, vis_size, 3))
-
-    for frame_i in range(vis_frames):
+    if use_flow_field:
+        visualizations = np.reshape(visualizations, (num_filters, 1, vis_frames - 1, vis_size, vis_size, 2))
+    else:
+        visualizations = np.reshape(visualizations, (num_filters, 1, vis_frames, vis_size, vis_size, 3))
+    frame_offset = 0
+    if use_flow_field:
+        frame_offset = -1
+    for frame_i in range(vis_frames + frame_offset):
         fig, axes = plt.subplots(rows, cols)
         print('Saving frame', frame_i)
         for i in range(num_filters):
             r = i // cols
             c = i % cols
             frame = visualizations[i][0][frame_i]
-            img = deprocess_image(frame)
-            #img = np.reshape(img, (vis_size, vis_size, 3))
-            #img = flow_to_rgb(np.float32(img))
+            if use_flow_field:
+                img = flow_to_rgb(np.float32(frame))
+            else:
+                img = deprocess_image(frame)
+                img = np.reshape(img, (vis_size, vis_size, 3))
             axes[r][c].imshow(img)
             axes[r][c].set_title(layer_name + ': ' + str(i))
             axes[r][c].set_xticks([])
@@ -222,7 +222,7 @@ def plot_conv_layer():
         except OSError:
             print('Directory', layer_name, 'already exists')
         plt.tight_layout()
-        plt.savefig('conv_vis/' + layer_name + '/' + str(frame_i) + '.png')
+        plt.savefig('conv_vis/' + layer_name + '/' + str(frame_i) + '.png', dpi=300)
         plt.clf()
 
 
@@ -242,7 +242,8 @@ def predict_test():
         start_frame = np.random.randint(0, len(video) - window_size)
         if start_frame + window_size < len(video):
             clip = video[start_frame:start_frame + window_size]
-            #flow_field = video_to_flow_field(clip)
+            if use_flow_field:
+                flow_field = video_to_flow_field(np.uint8(clip))
             label_clip = label[np.where(label < start_frame + window_size)]
             label_clip = label_clip[np.where(label_clip > start_frame)]
             y = np.zeros(window_size)
@@ -252,10 +253,16 @@ def predict_test():
                 print('fitting:')
                 smoothed_y = fit_sin(np.arange(0, window_size), y, window_size)
                 print('Smoothed', smoothed_y)
-            pred = model.predict(np.array([clip]))
+            if use_flow_field:
+                pred = model.predict(np.array([flow_field]))
+            else:
+                pred = model.predict(np.array([clip / 255.]))
             print(pred)
             print(y)
-            plot_clip(clip)
+            if use_flow_field:
+                plot_clip(flow_field)
+            else:
+                plot_clip(clip)
             plt.plot(pred[0])
             plt.scatter(np.arange(0, window_size), y)
             plt.plot(smoothed_y)
@@ -263,6 +270,23 @@ def predict_test():
             print(np.sum(pred[0]))
 
 
-predict_test()
-plot_conv_layer()
+#predict_test()
+
+# load data
+dir = 'models/'
+with open(dir + 'model_architecture.json', 'r') as f:
+    model = model_from_json(f.read())
+# Load weights into the new model
+model.load_weights(dir + 'model_weights.h5')
+print(model.summary())
+
+# get the symbolic outputs of each "key" layer (we gave them unique names).
+layer_dict = dict([(layer.name, layer) for layer in model.layers])
+print(layer_dict)
+for batch in generate_batch(1):
+    for layer in layer_dict.keys():
+        if 'activation' in layer:
+            plot_conv_layer(model, layer, layer_dict, input_video=batch[0]['video'])
+            #plot_conv_layer(model, layer, layer_dict)
+    break
 
