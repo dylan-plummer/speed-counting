@@ -21,9 +21,9 @@ annotation_dir = 'speed_annotations/'
 kernel_size = 32
 kernel_frames = 4
 frame_size = 256
-window_size = 4
+window_size = 5
 
-vis_frames = 4
+vis_frames = 5
 vis_size = 256
 vis_iter = 10
 
