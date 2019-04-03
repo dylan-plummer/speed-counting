@@ -13,21 +13,22 @@ from keras import backend as K
 from keras.utils import np_utils
 
 from data_helpers import smooth, fit_sin
-from train_video import generate_batch
+from train_video import generate_batch, open_video
 
 data_dir = os.getcwd() + '/data/'
 video_dir = 'speed_videos/'
 annotation_dir = 'speed_annotations/'
 kernel_size = 32
 kernel_frames = 4
-frame_size = 256
+frame_size = 128
 window_size = 5
 
 vis_frames = 5
-vis_size = 256
-vis_iter = 10
+vis_size = 128
+vis_iter = 20
 
 use_flow_field = True
+grayscale = False
 
 
 def video_to_flow_field(video):
@@ -36,34 +37,6 @@ def video_to_flow_field(video):
         field = get_flow_field(video, i, i + 1)
         flow = np.append(flow, field)
     return np.reshape(flow, (video.shape[0] - 1, video.shape[1], video.shape[2], 2))
-
-
-def open_video(file, window_size):
-    print('\nOpening', file)
-    cap = cv2.VideoCapture(file)
-    frameCount = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    frameWidth = frame_size
-    frameHeight = frame_size
-
-    buf = np.zeros((frameCount, frameHeight, frameWidth, 3))
-
-    fc = 0
-    ret = 1
-
-    while True:
-        try:
-            ret, img = cap.read()
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            img = cv2.resize(img, (frame_size, frame_size))
-            buf[fc] = img.copy()
-            fc += 1
-        except Exception as e:
-            print(e)
-            # print('Done reading video')
-            break
-    print('Done reading video')
-    cap.release()
-    return buf
 
 
 def flow_to_rgb(flow):
@@ -153,6 +126,8 @@ def plot_conv_layer(model, layer_name, layer_dict, input_video=None):
         if input_video is None:
             if use_flow_field:
                 noise_batch = np.random.random((1, vis_frames - 1, vis_size, vis_size, 2))
+            elif grayscale:
+                noise_batch = np.random.normal(1, size=(1, vis_frames, vis_size, vis_size, 1))
             else:
                 noise_batch = np.random.normal(1, size=(1, vis_frames, vis_size, vis_size, 3))
         else:
@@ -165,9 +140,9 @@ def plot_conv_layer(model, layer_name, layer_dict, input_video=None):
         try:
             loss = K.mean(layer_output[..., filter_index])
         except Exception as e:
-            print(e)
             layer_output = layer_dict[layer_name].output
             filter_index = 0
+            pass
 
         # compute the gradient of the input picture wrt this loss
         grads = K.gradients(loss, input_img)[0]
@@ -195,7 +170,10 @@ def plot_conv_layer(model, layer_name, layer_dict, input_video=None):
             visualizations = np.append(visualizations, noise_batch)
 
     if use_flow_field:
+        print(visualizations.shape)
         visualizations = np.reshape(visualizations, (num_filters, 1, vis_frames - 1, vis_size, vis_size, 2))
+    elif grayscale:
+        visualizations = np.reshape(visualizations, (num_filters, 1, vis_frames, vis_size, vis_size, 1))
     else:
         visualizations = np.reshape(visualizations, (num_filters, 1, vis_frames, vis_size, vis_size, 3))
     frame_offset = 0
@@ -210,10 +188,15 @@ def plot_conv_layer(model, layer_name, layer_dict, input_video=None):
             frame = visualizations[i][0][frame_i]
             if use_flow_field:
                 img = flow_to_rgb(np.float32(frame))
+                axes[r][c].imshow(img)
+            elif grayscale:
+                img = deprocess_image(frame)
+                img = np.reshape(img, (vis_size, vis_size))
+                axes[r][c].imshow(img, cmap='viridis')
             else:
                 img = deprocess_image(frame)
                 img = np.reshape(img, (vis_size, vis_size, 3))
-            axes[r][c].imshow(img)
+                axes[r][c].imshow(img)
             axes[r][c].set_title(layer_name + ': ' + str(i))
             axes[r][c].set_xticks([])
             axes[r][c].set_yticks([])
@@ -285,8 +268,8 @@ layer_dict = dict([(layer.name, layer) for layer in model.layers])
 print(layer_dict)
 for batch in generate_batch(1):
     for layer in layer_dict.keys():
-        if 'activation' in layer:
-            plot_conv_layer(model, layer, layer_dict, input_video=batch[0]['video'])
-            #plot_conv_layer(model, layer, layer_dict)
+        if 'conv' in layer:
+            #plot_conv_layer(model, layer, layer_dict, input_video=batch[0]['video'])
+            plot_conv_layer(model, layer, layer_dict)
     break
 

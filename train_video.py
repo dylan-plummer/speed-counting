@@ -9,20 +9,22 @@ from keras.layers import SpatialDropout1D
 from keras.optimizers import SGD, Adam
 
 from data_helpers import smooth, fit_sin
+from models import stacked_model, build_inception_model
 
 data_dir = os.getcwd() + '/data/'
 video_dir = 'speed_videos/'
 annotation_dir = 'speed_annotations/'
-learning_rate = 1e-4
-batch_size = 8
-num_epochs = 50
+learning_rate = 1e-3
+batch_size = 32
+num_epochs = 300
 num_filters = 32
 kernel_size = 32
 kernel_frames = 4
-frame_size = 256
+frame_size = 128
 window_size = 5
 
 use_flow_field = True
+grayscale = False
 
 
 def video_to_flow_field(video):
@@ -39,7 +41,10 @@ def open_video(file, window_size, flow_field=False):
     frameWidth = frame_size
     frameHeight = frame_size
 
-    buf = np.zeros((frameCount, frameHeight, frameWidth, 3))
+    if grayscale:
+        buf = np.zeros((frameCount, frameHeight, frameWidth, 1))
+    else:
+        buf = np.zeros((frameCount, frameHeight, frameWidth, 3))
 
     fc = 0
     ret = 1
@@ -47,7 +52,10 @@ def open_video(file, window_size, flow_field=False):
     while True:
         try:
             ret, img = cap.read()
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            if grayscale:
+                img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            else:
+                img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             img = cv2.resize(img, (frame_size, frame_size), interpolation=cv2.INTER_AREA)
             buf[fc] = img.copy()
             fc += 1
@@ -98,7 +106,8 @@ def generate_batch(batch_size):
             for start_frame in range(random_offset, len(video), window_size):
                 if start_frame + window_size < len(video):
                     clip = video[start_frame:start_frame + window_size]
-                    flow_field = video_to_flow_field(np.uint8(clip))
+                    if use_flow_field:
+                        flow_field = video_to_flow_field(np.uint8(clip))
                     label_clip = label[np.where(label < start_frame + window_size)]
                     label_clip = label_clip[np.where(label_clip > start_frame)]
                     y = np.zeros(window_size)
@@ -112,16 +121,18 @@ def generate_batch(batch_size):
                         x_batch = np.append(x_batch, flow_field)
                     else:
                         x_batch = np.append(x_batch, clip / 255.)
-                    y_batch = np.append(y_batch, binary_y)
+                    y_batch = np.append(y_batch, y)
                     total_batch = np.append(total_batch, np.sum(y))
                     num_clips += 1
                     if num_clips == batch_size:
                         num_clips = 0
                         if use_flow_field:
                             x_batch = np.reshape(x_batch, (-1, window_size - 1, frame_size, frame_size, 2))
+                        elif grayscale:
+                            x_batch = np.reshape(x_batch, (-1, window_size, frame_size, frame_size, 1))
                         else:
                             x_batch = np.reshape(x_batch, (-1, window_size, frame_size, frame_size, 3))
-                        #y_batch = np.reshape(y_batch, (-1, 1))
+                        y_batch = np.reshape(y_batch, (-1, window_size))
                         yield {'video': x_batch}, {'frames': y_batch}
                         x_batch = np.array([])
                         y_batch = np.array([])
@@ -134,55 +145,8 @@ if __name__ == '__main__':
     max_frames = get_max_length() + 1
     print('Max Frames:', max_frames)
 
-    if use_flow_field:
-        encoder = Input(shape=(window_size - 1, frame_size, frame_size, 2), name='video')
-    else:
-        encoder = Input(shape=(window_size, frame_size, frame_size, 3), name='video')
-    output = Conv3D(4, (2, 16, 16))(encoder)
-    output = BatchNormalization()(output)
-    output = Activation('relu')(output)
-    output = MaxPooling3D((1, 2, 2))(output)
-    output = Conv3D(8, (2, 8, 8))(output)
-    output = BatchNormalization()(output)
-    output = Activation('relu')(output)
-    output = MaxPooling3D((1, 2, 2))(output)
-    output = Conv3D(16, (1, 4, 4))(output)
-    output = BatchNormalization()(output)
-    output = Activation('relu')(output)
-    output = MaxPooling3D((1, 2, 2))(output)
-    output = Conv3D(32, (1, 3, 3))(output)
-    output = BatchNormalization()(output)
-    output = Activation('relu')(output)
-    output = MaxPooling3D((1, 2, 2))(output)
-    output = Conv3D(64, (1, 3, 3))(output)
-    output = BatchNormalization()(output)
-    output = Activation('relu')(output)
-    output = MaxPooling3D((1, 2, 2))(output)
-    output = Conv3D(128, (1, 3, 3))(output)
-    output = BatchNormalization()(output)
-    output = Activation('relu')(output)
-    output = MaxPooling3D((1, 2, 2))(output)
-
-    #output = TimeDistributed(MaxPooling2D(pool_size=(4, 4)))(output)
-    #output = Conv3D(num_filters, (kernel_frames, kernel_size, kernel_size), activation='relu')(encoder)
-    #output = MaxPooling3D(pool_size=(2, 2, 2), strides=(4, 2, 2))(output)
-    #output = Conv3D(64, (3, 3, 3), activation='relu')(output)
-    #output = MaxPooling3D(pool_size=(2, 2, 2), strides=(3, 2, 2))(output)
-
-    #output = LSTM(100, input_shape=(batch_size, 1, window_size - 1, 32, 32, 2))(output)
-    #output = Conv3D(128, (2, 2, 2), activation='relu')(output)
-    #output = MaxPooling3D(pool_size=(1, 2, 2), strides=(1, 2, 2))(output)
-    #output = TimeDistributed(Dense(256, activation='relu'))(output)
-    #output = TimeDistributed(Dense(512, activation='relu'))(output)
-    #output = TimeDistributed(Dense(128, activation='relu'))(output)
-    output = Flatten()(output)
-    output = Dense(256, activation='relu')(output)
-    #output = LSTM(50)(output)
-    #output = TimeDistributed(Flatten())(output)
-    #repetitions = Dense(1, activation='sigmoid', name='count')(output)
-    output = Dense(1, activation='sigmoid', name='frames')(output)
-    model = Model(inputs=encoder,
-                  outputs=output)
+    model = stacked_model(use_flow_field, grayscale, window_size, frame_size)
+    #model = build_inception_model(use_flow_field, window_size, frame_size)
 
     adam = Adam(lr=learning_rate)
     sgd = SGD(lr=learning_rate, nesterov=True, decay=1e-6, momentum=0.9)
@@ -197,10 +161,10 @@ if __name__ == '__main__':
         'count': 0.25,
     }
 
-    model.compile(loss='binary_crossentropy',
+    model.compile(loss='categorical_crossentropy',
                   #loss_weights=loss_weights,
                   optimizer=sgd,
-                  metrics=['acc'])
+                  metrics=['categorical_accuracy'])
 
     # model.compile(loss='mse', optimizer='rmsprop')
     print(model.summary())
@@ -220,17 +184,21 @@ if __name__ == '__main__':
     print(history.history.keys())
 
     # summarize history for accuracy
-    plt.plot(history.history['loss'])
+    for loss_plot in history.history.keys():
+        if 'loss' in loss_plot:
+            plt.plot(history.history[loss_plot], label=loss_plot)
     plt.title('model loss')
     plt.ylabel('loss')
     plt.xlabel('epoch')
-    plt.legend(['total_loss', 'frames_loss', 'count_loss'], loc='upper left')
+    plt.legend(loc='best')
     plt.show()
 
-    plt.plot(history.history['acc'])
+    for acc_plot in history.history.keys():
+        if 'acc' in acc_plot:
+            plt.plot(history.history[acc_plot], label=acc_plot)
     plt.title('model accuracy')
     plt.ylabel('accuracy')
     plt.xlabel('epoch')
-    plt.legend(['frame_acc'], loc='upper left')
+    plt.legend(loc='best')
     plt.show()
 
