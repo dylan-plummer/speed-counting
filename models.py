@@ -35,6 +35,9 @@ def stacked_model(use_flow_field, grayscale, window_size, frame_size):
     output = BatchNormalization()(output)
     output = Activation('relu')(output)
     output = MaxPooling3D((1, 2, 2))(output)
+    output = Conv3D(128, (1, 3, 3))(output)
+    output = BatchNormalization()(output)
+    output = Activation('relu')(output)
 
     #output = TimeDistributed(MaxPooling2D(pool_size=(4, 4)))(output)
     #output = Conv3D(num_filters, (kernel_frames, kernel_size, kernel_size), activation='relu')(encoder)
@@ -53,7 +56,10 @@ def stacked_model(use_flow_field, grayscale, window_size, frame_size):
     #output = LSTM(50)(output)
     #output = TimeDistributed(Flatten())(output)
     #repetitions = Dense(1, activation='sigmoid', name='count')(output)
-    output = Dense(window_size, activation='softmax', name='frames')(output)
+    if use_flow_field:
+        output = Dense(window_size - 1, activation='sigmoid', name='frames')(output)
+    else:
+        output = Dense(window_size, activation='sigmoid', name='frames')(output)
     model = Model(inputs=encoder,
                   outputs=output)
     return model

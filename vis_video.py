@@ -20,15 +20,15 @@ video_dir = 'speed_videos/'
 annotation_dir = 'speed_annotations/'
 kernel_size = 32
 kernel_frames = 4
-frame_size = 128
-window_size = 5
+frame_size = 256
+window_size = 4
 
-vis_frames = 5
-vis_size = 128
-vis_iter = 20
+vis_frames = 4
+vis_size = 256
+vis_iter = 50
 
-use_flow_field = True
-grayscale = False
+use_flow_field = False
+grayscale = True
 
 
 def video_to_flow_field(video):
@@ -81,10 +81,13 @@ def plot_clip(clip):
     for i in range(len(clip)):
         r = i // cols
         c = i % cols
-        img = np.uint8(clip[i])
+        img = clip[i]
         # img = np.reshape(img, (vis_size, vis_size, 3))
         if use_flow_field:
             img = flow_to_rgb(np.float32(img))
+        elif grayscale:
+            img = img[..., 0]
+            print(img.shape, img.max())
         axes[r][c].imshow(img)
         axes[r][c].set_title(str(i))
         axes[r][c].set_xticks([])
@@ -116,8 +119,8 @@ def plot_conv_layer(model, layer_name, layer_dict, input_video=None):
     layer_output = layer_dict[layer_name].output
     input_img = model.input
     print(layer_output)
-    rows = 5
-    cols = 5
+    rows = 4
+    cols = 4
     num_filters = rows * cols
     active_layers = 0  # keeps track of number of activated layers currently in the visualization
     filter_index = 0
@@ -131,10 +134,7 @@ def plot_conv_layer(model, layer_name, layer_dict, input_video=None):
             else:
                 noise_batch = np.random.normal(1, size=(1, vis_frames, vis_size, vis_size, 3))
         else:
-            if use_flow_field:
-                noise_batch = input_video
-            else:
-                noise_batch = input_video / 255.
+            noise_batch = input_video
         # build a loss function that maximizes the activation
         # of the nth filter of the layer considered
         try:
@@ -142,6 +142,7 @@ def plot_conv_layer(model, layer_name, layer_dict, input_video=None):
         except Exception as e:
             layer_output = layer_dict[layer_name].output
             filter_index = 0
+            print(e)
             pass
 
         # compute the gradient of the input picture wrt this loss
@@ -160,9 +161,8 @@ def plot_conv_layer(model, layer_name, layer_dict, input_video=None):
         for i in range(vis_iter):
             loss_value, grads_value = iterate([noise_batch])
             if loss_value == 0:
-                #print('Neuron', filter_index, 'not activated')
+                print('Neuron', filter_index, 'not activated')
                 break
-            #print(i, 'Loss:', loss_value)
             noise_batch += grads_value * step
         if loss_value != 0:
             active_layers += 1
@@ -192,7 +192,7 @@ def plot_conv_layer(model, layer_name, layer_dict, input_video=None):
             elif grayscale:
                 img = deprocess_image(frame)
                 img = np.reshape(img, (vis_size, vis_size))
-                axes[r][c].imshow(img, cmap='viridis')
+                axes[r][c].imshow(img, cmap='gray')
             else:
                 img = deprocess_image(frame)
                 img = np.reshape(img, (vis_size, vis_size, 3))
@@ -209,16 +209,13 @@ def plot_conv_layer(model, layer_name, layer_dict, input_video=None):
         plt.clf()
 
 
-def predict_test():
-    dir = 'models/'
-    with open(dir + 'model_architecture.json', 'r') as f:
-        model = model_from_json(f.read())
-    # Load weights into the new model
-    model.load_weights(dir + 'model_weights.h5')
+def predict_test(model):
     video_path = np.random.choice(os.listdir(data_dir + video_dir))
     label_path = data_dir + annotation_dir + video_path.replace('.mp4', '.npy')
     label = np.load(label_path)
     video = open_video(data_dir + video_dir + video_path, window_size=window_size)
+    print('Video shape', video.shape)
+    print('Video max', video.max())
     num_clips = 0
     smoothed_y = np.zeros(window_size)
     while smoothed_y.all() == 0:
@@ -240,20 +237,19 @@ def predict_test():
                 pred = model.predict(np.array([flow_field]))
             else:
                 pred = model.predict(np.array([clip / 255.]))
-            print(pred)
+            print(pred[0])
             print(y)
             if use_flow_field:
                 plot_clip(flow_field)
             else:
-                plot_clip(clip)
+                print(clip.max())
+                plot_clip(clip / 255.)
             plt.plot(pred[0])
             plt.scatter(np.arange(0, window_size), y)
             plt.plot(smoothed_y)
             plt.show()
             print(np.sum(pred[0]))
 
-
-#predict_test()
 
 # load data
 dir = 'models/'
@@ -263,13 +259,20 @@ with open(dir + 'model_architecture.json', 'r') as f:
 model.load_weights(dir + 'model_weights.h5')
 print(model.summary())
 
+#predict_test(model)
+
 # get the symbolic outputs of each "key" layer (we gave them unique names).
 layer_dict = dict([(layer.name, layer) for layer in model.layers])
 print(layer_dict)
 for batch in generate_batch(1):
     for layer in layer_dict.keys():
-        if 'conv' in layer:
-            #plot_conv_layer(model, layer, layer_dict, input_video=batch[0]['video'])
-            plot_conv_layer(model, layer, layer_dict)
+        if 'conv' in layer or 'dense' in layer or 'video' in layer:
+        #if 'frames' in layer:
+            try:
+                #plot_conv_layer(model, layer, layer_dict, input_video=batch[0]['video'])
+                plot_conv_layer(model, layer, layer_dict)
+            except Exception as e:
+                print(e)
+                pass
     break
 

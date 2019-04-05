@@ -14,17 +14,17 @@ from models import stacked_model, build_inception_model
 data_dir = os.getcwd() + '/data/'
 video_dir = 'speed_videos/'
 annotation_dir = 'speed_annotations/'
-learning_rate = 1e-3
-batch_size = 32
-num_epochs = 300
+learning_rate = 5e-4
+batch_size = 8
+num_epochs = 150
 num_filters = 32
 kernel_size = 32
 kernel_frames = 4
-frame_size = 128
-window_size = 5
+frame_size = 256
+window_size = 4
 
-use_flow_field = True
-grayscale = False
+use_flow_field = False
+grayscale = True
 
 
 def video_to_flow_field(video):
@@ -42,7 +42,7 @@ def open_video(file, window_size, flow_field=False):
     frameHeight = frame_size
 
     if grayscale:
-        buf = np.zeros((frameCount, frameHeight, frameWidth, 1))
+        buf = np.zeros((frameCount, frameHeight, frameWidth), dtype=np.uint8)
     else:
         buf = np.zeros((frameCount, frameHeight, frameWidth, 3))
 
@@ -62,6 +62,8 @@ def open_video(file, window_size, flow_field=False):
         except Exception as e:
             break
     cap.release()
+    if grayscale:
+        buf = np.reshape(buf, (frameCount, frameHeight, frameWidth, 1))
     return buf
 
 
@@ -108,9 +110,13 @@ def generate_batch(batch_size):
                     clip = video[start_frame:start_frame + window_size]
                     if use_flow_field:
                         flow_field = video_to_flow_field(np.uint8(clip))
-                    label_clip = label[np.where(label < start_frame + window_size)]
-                    label_clip = label_clip[np.where(label_clip > start_frame)]
-                    y = np.zeros(window_size)
+                        label_clip = label[np.where(label < start_frame + window_size - 1)]
+                        label_clip = label_clip[np.where(label_clip > start_frame)]
+                        y = np.zeros(window_size - 1)
+                    else:
+                        label_clip = label[np.where(label < start_frame + window_size)]
+                        label_clip = label_clip[np.where(label_clip > start_frame)]
+                        y = np.zeros(window_size)
                     for frame in label_clip:
                         y[frame - start_frame] = 1
                     if y.any() == 1:
@@ -132,7 +138,10 @@ def generate_batch(batch_size):
                             x_batch = np.reshape(x_batch, (-1, window_size, frame_size, frame_size, 1))
                         else:
                             x_batch = np.reshape(x_batch, (-1, window_size, frame_size, frame_size, 3))
-                        y_batch = np.reshape(y_batch, (-1, window_size))
+                        if use_flow_field:
+                            y_batch = np.reshape(y_batch, (-1, window_size - 1))
+                        else:
+                            y_batch = np.reshape(y_batch, (-1, window_size))
                         yield {'video': x_batch}, {'frames': y_batch}
                         x_batch = np.array([])
                         y_batch = np.array([])
@@ -161,10 +170,10 @@ if __name__ == '__main__':
         'count': 0.25,
     }
 
-    model.compile(loss='categorical_crossentropy',
+    model.compile(loss='binary_crossentropy',
                   #loss_weights=loss_weights,
                   optimizer=sgd,
-                  metrics=['categorical_accuracy'])
+                  metrics=['accuracy'])
 
     # model.compile(loss='mse', optimizer='rmsprop')
     print(model.summary())
