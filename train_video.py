@@ -15,12 +15,12 @@ data_dir = os.getcwd() + '/data/'
 video_dir = 'speed_videos/'
 annotation_dir = 'speed_annotations/'
 learning_rate = 5e-4
-batch_size = 8
-num_epochs = 150
+batch_size = 16
+num_epochs = 100
 num_filters = 32
 kernel_size = 32
 kernel_frames = 4
-frame_size = 256
+frame_size = 128
 window_size = 4
 
 use_flow_field = False
@@ -80,16 +80,15 @@ def get_flow_field(video, i, j):
     return flow
 
 
-def get_max_length():
+def get_total_frames():
     global data_dir
-    max_frames = 0
+    total = 0
     for filename in os.listdir(data_dir + video_dir):
         label_path = data_dir + annotation_dir + filename.replace('.mp4', '.npy')
         label = np.load(label_path)
         print(label[-1])
-        if label[-1] > max_frames:
-            max_frames = label[-1]
-    return max_frames
+        total += label[-1]
+    return total
 
 
 def generate_batch(batch_size):
@@ -151,8 +150,9 @@ def generate_batch(batch_size):
 
 if __name__ == '__main__':
 
-    max_frames = get_max_length() + 1
-    print('Max Frames:', max_frames)
+    total_frames = get_total_frames() + 1
+    print('Total Frames:', total_frames)
+    print('Total Samples:', total_frames // window_size)
 
     model = stacked_model(use_flow_field, grayscale, window_size, frame_size)
     #model = build_inception_model(use_flow_field, window_size, frame_size)
@@ -181,7 +181,7 @@ if __name__ == '__main__':
     history = model.fit_generator(generate_batch(batch_size),
                                   epochs=num_epochs,
                                   steps_per_epoch=100,
-                                  verbose=1)
+                                  verbose=2)
 
     # Save the weights
     model.save_weights('models/model_weights.h5')

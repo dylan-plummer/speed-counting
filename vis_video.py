@@ -20,12 +20,12 @@ video_dir = 'speed_videos/'
 annotation_dir = 'speed_annotations/'
 kernel_size = 32
 kernel_frames = 4
-frame_size = 256
+frame_size = 128
 window_size = 4
 
 vis_frames = 4
-vis_size = 256
-vis_iter = 50
+vis_size = 128
+vis_iter = 4
 
 use_flow_field = False
 grayscale = True
@@ -125,7 +125,7 @@ def plot_conv_layer(model, layer_name, layer_dict, input_video=None):
     active_layers = 0  # keeps track of number of activated layers currently in the visualization
     filter_index = 0
 
-    while active_layers < num_filters:
+    while active_layers < num_filters and 'video' not in layer_name:
         if input_video is None:
             if use_flow_field:
                 noise_batch = np.random.random((1, vis_frames - 1, vis_size, vis_size, 2))
@@ -266,11 +266,11 @@ layer_dict = dict([(layer.name, layer) for layer in model.layers])
 print(layer_dict)
 for batch in generate_batch(1):
     for layer in layer_dict.keys():
-        if 'conv' in layer or 'dense' in layer or 'video' in layer:
+        if 'conv' in layer or 'activation' in layer or 'video' in layer:
         #if 'frames' in layer:
             try:
-                #plot_conv_layer(model, layer, layer_dict, input_video=batch[0]['video'])
-                plot_conv_layer(model, layer, layer_dict)
+                plot_conv_layer(model, layer, layer_dict, input_video=batch[0]['video'])
+                #plot_conv_layer(model, layer, layer_dict)
             except Exception as e:
                 print(e)
                 pass
