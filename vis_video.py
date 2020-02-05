@@ -20,12 +20,12 @@ video_dir = 'speed_videos/'
 annotation_dir = 'speed_annotations/'
 kernel_size = 32
 kernel_frames = 4
-frame_size = 128
-window_size = 4
+frame_size = 64
+window_size = 8
 
-vis_frames = 4
-vis_size = 128
-vis_iter = 4
+vis_frames = 8
+vis_size = 64
+vis_iter = 50
 
 use_flow_field = False
 grayscale = True
@@ -259,7 +259,7 @@ with open(dir + 'model_architecture.json', 'r') as f:
 model.load_weights(dir + 'model_weights.h5')
 print(model.summary())
 
-#predict_test(model)
+predict_test(model)
 
 # get the symbolic outputs of each "key" layer (we gave them unique names).
 layer_dict = dict([(layer.name, layer) for layer in model.layers])
@@ -269,8 +269,8 @@ for batch in generate_batch(1):
         if 'conv' in layer or 'activation' in layer or 'video' in layer:
         #if 'frames' in layer:
             try:
-                plot_conv_layer(model, layer, layer_dict, input_video=batch[0]['video'])
-                #plot_conv_layer(model, layer, layer_dict)
+                #plot_conv_layer(model, layer, layer_dict, input_video=batch[0]['video'])
+                plot_conv_layer(model, layer, layer_dict)
             except Exception as e:
                 print(e)
                 pass

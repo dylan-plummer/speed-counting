@@ -16,12 +16,12 @@ video_dir = 'speed_videos/'
 annotation_dir = 'speed_annotations/'
 learning_rate = 5e-4
 batch_size = 16
-num_epochs = 100
+num_epochs = 10
 num_filters = 32
 kernel_size = 32
 kernel_frames = 4
-frame_size = 128
-window_size = 4
+frame_size = 64
+window_size = 8
 
 use_flow_field = False
 grayscale = True
